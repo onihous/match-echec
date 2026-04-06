@@ -1,0 +1,1161 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Jeu d'échec</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.5/socket.io.js"></script>
+    <style>
+        /* ============================================================
+           STYLES GÉNÉRAUX
+           ============================================================ */
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #1a1a2e;
+            color: #e0e0e0;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        h1 {
+            margin: 15px 0 10px;
+            font-size: 1.8em;
+            color: #f0d9b5;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.5);
+        }
+
+        /* ============================================================
+           LAYOUT PRINCIPAL
+           ============================================================ */
+        .main-container {
+            display: flex;
+            gap: 20px;
+            align-items: flex-start;
+            padding: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        /* ============================================================
+           PANNEAU LATÉRAL (joueurs, statut, boutons)
+           ============================================================ */
+        .side-panel {
+            background: #16213e;
+            border-radius: 10px;
+            padding: 15px;
+            width: 220px;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .side-panel h2 {
+            font-size: 1em;
+            color: #f0d9b5;
+            border-bottom: 1px solid #333;
+            padding-bottom: 5px;
+        }
+
+        .status-box {
+            background: #0f3460;
+            border-radius: 8px;
+            padding: 10px;
+            text-align: center;
+            font-weight: bold;
+            font-size: 0.95em;
+        }
+
+        .status-box.check { background: #e74c3c; color: white; }
+        .status-box.checkmate { background: #e74c3c; color: white; }
+        .status-box.stalemate { background: #f39c12; color: white; }
+
+        .players-list {
+            list-style: none;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+
+        .players-list li {
+            padding: 4px 8px;
+            border-radius: 4px;
+            margin-bottom: 3px;
+            background: #0f3460;
+            font-size: 0.9em;
+        }
+
+        .btn {
+            display: block;
+            width: 100%;
+            padding: 10px;
+            border: none;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: bold;
+            transition: opacity 0.2s;
+        }
+
+        .btn:hover { opacity: 0.85; }
+
+        .btn-reset { background: #27ae60; color: white; }
+        .btn-clear { background: #e67e22; color: white; }
+        .btn-flip { background: #3498db; color: white; }
+        .btn-validate { background: #2ecc71; color: white; }
+
+        /* ============================================================
+           ZONE DE JEU (échiquier + captures)
+           ============================================================ */
+        .game-zone {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+        }
+
+        /* ============================================================
+           ÉCHIQUIER
+           ============================================================ */
+        .board-wrapper {
+            position: relative;
+        }
+
+        .board {
+            display: grid;
+            grid-template-columns: repeat(8, 65px);
+            grid-template-rows: repeat(8, 65px);
+            border: 3px solid #f0d9b5;
+            border-radius: 4px;
+            cursor: default;
+        }
+
+        .square {
+            width: 65px;
+            height: 65px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 42px;
+            position: relative;
+            user-select: none;
+            cursor: pointer;
+        }
+
+        .square.light { background: #f0d9b5; }
+        .square.dark { background: #b58863; }
+
+        /* Case sélectionnée */
+        .square.selected { background: #829769 !important; }
+
+        /* Dernière case jouée */
+        .square.last-from { background: #cdd26a !important; }
+        .square.last-to { background: #cdd26a !important; }
+
+        /* Roi en échec */
+        .square.in-check {
+            background: radial-gradient(ellipse at center, #ff0000 0%, #ff6666 40%, transparent 70%) !important;
+        }
+
+        /* Point noir : coup légal sur case vide */
+        .legal-dot {
+            position: absolute;
+            width: 18px;
+            height: 18px;
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* Cercle : coup légal sur case occupée (capture) */
+        .legal-capture {
+            position: absolute;
+            width: 60px;
+            height: 60px;
+            border: 4px solid rgba(0, 0, 0, 0.3);
+            border-radius: 50%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        /* Pièce sur une case */
+        .piece {
+            z-index: 1;
+            line-height: 1;
+            font-size: 46px;
+        }
+
+        /* Pièces blanches : blanc pur avec contour sombre */
+        .piece-white {
+            color: #ffffff;
+            text-shadow:
+                -1px -1px 0 #000,
+                 1px -1px 0 #000,
+                -1px  1px 0 #000,
+                 1px  1px 0 #000,
+                 0   -1px 0 #000,
+                 0    1px 0 #000,
+                -1px  0   0 #000,
+                 1px  0   0 #000;
+        }
+
+        /* Pièces noires : noir profond avec contour clair */
+        .piece-black {
+            color: #1a1a1a;
+            text-shadow:
+                -1px -1px 0 #999,
+                 1px -1px 0 #999,
+                -1px  1px 0 #999,
+                 1px  1px 0 #999,
+                 0   -1px 0 #999,
+                 0    1px 0 #999,
+                -1px  0   0 #999,
+                 1px  0   0 #999;
+        }
+
+        /* Coordonnées du plateau */
+        .coord-file, .coord-rank {
+            position: absolute;
+            font-size: 11px;
+            font-weight: bold;
+            pointer-events: none;
+            z-index: 3;
+        }
+
+        .coord-file {
+            bottom: 2px;
+            right: 3px;
+        }
+
+        .coord-rank {
+            top: 2px;
+            left: 3px;
+        }
+
+        .square.light .coord-file, .square.light .coord-rank { color: #b58863; }
+        .square.dark .coord-file, .square.dark .coord-rank { color: #f0d9b5; }
+
+        /* ============================================================
+           PIÈCES CAPTURÉES
+           ============================================================ */
+        .captures-bar {
+            display: flex;
+            justify-content: space-between;
+            width: 520px;
+            background: #16213e;
+            border-radius: 8px;
+            padding: 8px 12px;
+        }
+
+        .capture-group {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            font-size: 0.9em;
+        }
+
+        .capture-pieces {
+            font-size: 1.3em;
+            letter-spacing: 1px;
+        }
+
+        .capture-score {
+            font-weight: bold;
+            color: #f0d9b5;
+            margin-left: 5px;
+        }
+
+        /* ============================================================
+           CURSEURS DES AUTRES JOUEURS
+           ============================================================ */
+        .remote-cursor {
+            position: fixed;
+            pointer-events: none;
+            z-index: 1000;
+            transition: left 0.08s linear, top 0.08s linear;
+        }
+
+        .cursor-name {
+            background: #e74c3c;
+            color: white;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 11px;
+            font-weight: bold;
+            white-space: nowrap;
+            margin-left: 12px;
+            margin-top: -5px;
+        }
+
+        .cursor-arrow {
+            width: 0;
+            height: 0;
+            border-left: 6px solid transparent;
+            border-right: 6px solid transparent;
+            border-bottom: 10px solid #e74c3c;
+            transform: rotate(-30deg);
+        }
+
+        /* ============================================================
+           MODALE DE CONNEXION (prénom)
+           ============================================================ */
+        .modal-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.85);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+
+        .modal-box {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            border: 2px solid #f0d9b5;
+        }
+
+        .modal-box h2 {
+            color: #f0d9b5;
+            margin-bottom: 15px;
+        }
+
+        .modal-box input {
+            padding: 10px 15px;
+            border-radius: 6px;
+            border: 2px solid #f0d9b5;
+            background: #1a1a2e;
+            color: white;
+            font-size: 1em;
+            outline: none;
+            width: 220px;
+        }
+
+        .modal-box button {
+            margin-top: 12px;
+            padding: 10px 25px;
+            background: #27ae60;
+            color: white;
+            border: none;
+            border-radius: 6px;
+            font-size: 1em;
+            cursor: pointer;
+            font-weight: bold;
+        }
+
+        .modal-box button:hover { background: #2ecc71; }
+
+        /* ============================================================
+           MODALE DE PROMOTION
+           ============================================================ */
+        .promo-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100%; height: 100%;
+            background: rgba(0,0,0,0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 9998;
+        }
+
+        .promo-box {
+            background: #16213e;
+            border: 2px solid #f0d9b5;
+            border-radius: 12px;
+            padding: 20px;
+            text-align: center;
+        }
+
+        .promo-box h3 {
+            color: #f0d9b5;
+            margin-bottom: 12px;
+        }
+
+        .promo-choices {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+        }
+
+        .promo-choice {
+            width: 60px;
+            height: 60px;
+            font-size: 40px;
+            border: 2px solid transparent;
+            border-radius: 8px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .promo-choice:hover { border-color: #e74c3c; }
+
+        .promo-choice.promo-white {
+            background: #4a4a5a;
+            color: #ffffff;
+            text-shadow:
+                -1px -1px 0 #000, 1px -1px 0 #000,
+                -1px  1px 0 #000, 1px  1px 0 #000;
+        }
+
+        .promo-choice.promo-black {
+            background: #f0d9b5;
+            color: #1a1a1a;
+            text-shadow:
+                -1px -1px 0 #999, 1px -1px 0 #999,
+                -1px  1px 0 #999, 1px  1px 0 #999;
+        }
+
+        /* ============================================================
+           PALETTE D'ÉDITION (mode vider le plateau)
+           ============================================================ */
+        .edit-palette {
+            display: none;
+            background: #16213e;
+            border-radius: 8px;
+            padding: 10px;
+            width: 520px;
+            text-align: center;
+        }
+
+        .edit-palette.active { display: block; }
+
+        .edit-palette h3 {
+            color: #f0d9b5;
+            margin-bottom: 8px;
+            font-size: 0.9em;
+        }
+
+        .palette-pieces {
+            display: flex;
+            gap: 6px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+
+        .palette-piece {
+            width: 45px;
+            height: 45px;
+            font-size: 30px;
+            background: #0f3460;
+            border: 2px solid transparent;
+            border-radius: 6px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .palette-piece:hover { border-color: #f0d9b5; }
+        .palette-piece.selected { border-color: #e74c3c; background: #1a3a5c; }
+
+        .palette-piece.eraser {
+            font-size: 18px;
+            color: #e74c3c;
+        }
+
+        /* ============================================================
+           NOTIFICATION D'ERREUR
+           ============================================================ */
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: #e74c3c;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: bold;
+            z-index: 10000;
+            display: none;
+            animation: fadeIn 0.3s;
+        }
+
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+        /* ============================================================
+           ANIMATION DE CAPTURE (effet "gober")
+           ============================================================ */
+        @keyframes captureGobble {
+            0%   { transform: scale(1); }
+            15%  { transform: scale(1.35) rotate(-5deg); }
+            30%  { transform: scale(1.4) rotate(3deg); }
+            45%  { transform: scale(1.25) rotate(-2deg); }
+            60%  { transform: scale(1.15) rotate(1deg); }
+            80%  { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        @keyframes capturedPieceVanish {
+            0%   { opacity: 1; transform: scale(1); }
+            30%  { opacity: 0.7; transform: scale(0.6); }
+            100% { opacity: 0; transform: scale(0) rotate(45deg); }
+        }
+
+        .piece.capturing {
+            animation: captureGobble 0.5s ease-out;
+            z-index: 10;
+        }
+
+        .piece.captured-vanish {
+            animation: capturedPieceVanish 0.35s ease-in forwards;
+            z-index: 5;
+        }
+
+        /* ============================================================
+           CRÉDIT EN BAS DE PAGE
+           ============================================================ */
+        .credits {
+            position: fixed;
+            bottom: 5px;
+            right: 10px;
+            font-size: 10px;
+            color: #555;
+            font-style: italic;
+        }
+
+        /* ============================================================
+           RESPONSIVE
+           ============================================================ */
+        @media (max-width: 800px) {
+            .board { grid-template-columns: repeat(8, 50px); grid-template-rows: repeat(8, 50px); }
+            .square { width: 50px; height: 50px; font-size: 32px; }
+            .legal-capture { width: 45px; height: 45px; }
+            .side-panel { width: 100%; }
+            .captures-bar, .edit-palette { width: 400px; }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ============================================================
+         MODALE DE CONNEXION
+         ============================================================ -->
+    <div class="modal-overlay" id="loginModal">
+        <div class="modal-box">
+            <h2>♟ Jeu d'échec</h2>
+            <p style="margin-bottom:12px; color:#aaa;">Entrez votre prénom pour rejoindre</p>
+            <input type="text" id="nameInput" placeholder="Votre prénom" maxlength="20"
+                   autofocus autocomplete="off">
+            <br>
+            <button onclick="joinGame()">Rejoindre</button>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         MODALE DE PROMOTION
+         ============================================================ -->
+    <div class="promo-overlay" id="promoModal">
+        <div class="promo-box">
+            <h3>Choisissez la promotion</h3>
+            <div class="promo-choices" id="promoChoices"></div>
+        </div>
+    </div>
+
+    <!-- ============================================================
+         CONTENU PRINCIPAL
+         ============================================================ -->
+    <h1>♔ Jeu d'échec</h1>
+
+    <div class="main-container">
+        <!-- Panneau latéral gauche -->
+        <div class="side-panel">
+            <div>
+                <h2>⚡ Statut</h2>
+                <div class="status-box" id="statusBox">En attente...</div>
+            </div>
+            <div>
+                <h2>👥 Joueurs présents</h2>
+                <ul class="players-list" id="playersList"></ul>
+            </div>
+            <button class="btn btn-reset" onclick="resetBoard()">♻ Réinitialiser</button>
+            <button class="btn btn-clear" onclick="clearBoard()">🗑 Vider le plateau</button>
+            <button class="btn btn-flip" onclick="flipBoard()">🔄 Retourner le plateau</button>
+            <button class="btn btn-validate" id="btnValidate" style="display:none;"
+                    onclick="validatePosition()">✅ Valider la position</button>
+        </div>
+
+        <!-- Zone de jeu centrale -->
+        <div class="game-zone">
+            <!-- Captures du camp noir (pièces noires prises) -->
+            <div class="captures-bar">
+                <div class="capture-group">
+                    <span style="color:#aaa;">Pièces noires prises :</span>
+                    <span class="capture-pieces" id="capturedBlack"></span>
+                    <span class="capture-score" id="scoreBlack"></span>
+                </div>
+            </div>
+
+            <!-- Échiquier -->
+            <div class="board-wrapper">
+                <div class="board" id="board"></div>
+            </div>
+
+            <!-- Captures du camp blanc (pièces blanches prises) -->
+            <div class="captures-bar">
+                <div class="capture-group">
+                    <span style="color:#aaa;">Pièces blanches prises :</span>
+                    <span class="capture-pieces" id="capturedWhite"></span>
+                    <span class="capture-score" id="scoreWhite"></span>
+                </div>
+            </div>
+
+            <!-- Palette d'édition -->
+            <div class="edit-palette" id="editPalette">
+                <h3>Cliquez sur une pièce ci-dessous, puis sur une case du plateau pour la placer</h3>
+                <div class="palette-pieces" id="palettePieces"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast pour les erreurs -->
+    <div class="toast" id="toast"></div>
+
+    <!-- Crédit -->
+    <div class="credits">Jeu d'échec créé par Gaspard et Olivier</div>
+
+    <!-- ============================================================
+         JAVASCRIPT
+         ============================================================ -->
+    <script>
+        // ============================================================
+        // CONFIGURATION ET ÉTAT CLIENT
+        // ============================================================
+
+        const socket = io();
+
+        // État local (l'affichage se base sur ce que le serveur envoie)
+        let myName = '';
+        let mySid = '';
+        let boardFlipped = false;
+        let selectedSquare = null;    // case sélectionnée (ex: "e2")
+        let legalMoves = {};          // coups légaux reçus du serveur
+        let lastMove = null;          // dernier coup joué {from, to}
+        let gameState = null;         // dernier état reçu du serveur
+        let editSelectedPiece = null; // pièce sélectionnée en mode édition
+        let pendingCapture = null;    // {square, isCapture} pour l'animation de capture
+
+        // Correspondance FEN → Unicode
+        const PIECE_UNICODE = {
+            'P': '♙', 'N': '♘', 'B': '♗', 'R': '♖', 'Q': '♕', 'K': '♔',
+            'p': '♟', 'n': '♞', 'b': '♝', 'r': '♜', 'q': '♛', 'k': '♚'
+        };
+
+        // Noms des fichiers et rangées
+        const FILES = ['a','b','c','d','e','f','g','h'];
+        const RANKS = ['1','2','3','4','5','6','7','8'];
+
+        // Couleurs des curseurs distants (rotation)
+        const CURSOR_COLORS = ['#e74c3c','#3498db','#2ecc71','#f39c12','#9b59b6','#1abc9c','#e67e22','#c0392b'];
+        let cursorColorIndex = 0;
+        const remoteCursors = {};  // sid -> {element, color}
+
+        // ============================================================
+        // CONNEXION / PRÉNOM
+        // ============================================================
+
+        document.getElementById('nameInput').addEventListener('keydown', function(e) {
+            if (e.key === 'Enter') joinGame();
+        });
+
+        function joinGame() {
+            const name = document.getElementById('nameInput').value.trim();
+            if (!name) return;
+            if (name.length > 20) { showToast('20 caractères maximum'); return; }
+            if (!/^[a-zA-ZÀ-ÿ0-9 \-]+$/.test(name)) {
+                showToast('Caractères spéciaux non autorisés');
+                return;
+            }
+            socket.emit('join', { name: name });
+        }
+
+        socket.on('joined', function(data) {
+            myName = data.name;
+            mySid = data.sid;
+            document.getElementById('loginModal').style.display = 'none';
+        });
+
+        // ============================================================
+        // GESTION DE L'ÉTAT DU JEU (reçu du serveur)
+        // ============================================================
+
+        socket.on('game_state', function(state) {
+            gameState = state;
+            legalMoves = state.legal_moves || {};
+
+            // Détecter si le dernier coup était une capture
+            let captureInfo = null;
+            if (state.last_move && state.last_move.was_capture) {
+                captureInfo = { square: state.last_move.to };
+            }
+
+            if (state.last_move) {
+                lastMove = { from: state.last_move.from, to: state.last_move.to };
+            }
+            if (state.reset_by) {
+                lastMove = null;
+                selectedSquare = null;
+                captureInfo = null;
+            }
+
+            renderBoard(state, captureInfo);
+            renderCaptures(state.captured);
+            updateStatus(state);
+            updateEditMode(state.edit_mode);
+        });
+
+        // ============================================================
+        // RENDU DE L'ÉCHIQUIER
+        // ============================================================
+
+        function parseFEN(fen) {
+            // Retourne un objet { "a1": "R", "b1": "N", ... }
+            const pieces = {};
+            const rows = fen.split(' ')[0].split('/');
+            for (let r = 0; r < 8; r++) {
+                let col = 0;
+                for (const ch of rows[r]) {
+                    if (ch >= '1' && ch <= '8') {
+                        col += parseInt(ch);
+                    } else {
+                        const file = FILES[col];
+                        const rank = RANKS[7 - r];
+                        pieces[file + rank] = ch;
+                        col++;
+                    }
+                }
+            }
+            return pieces;
+        }
+
+        function renderBoard(state, captureInfo) {
+            const boardEl = document.getElementById('board');
+            boardEl.innerHTML = '';
+
+            const pieces = parseFEN(state.fen);
+            const selectedMoves = selectedSquare ? (legalMoves[selectedSquare] || []) : [];
+
+            for (let row = 0; row < 8; row++) {
+                for (let col = 0; col < 8; col++) {
+                    // Si le plateau est retourné, inverser les coordonnées visuelles
+                    const displayRow = boardFlipped ? (7 - row) : row;
+                    const displayCol = boardFlipped ? (7 - col) : col;
+
+                    const file = FILES[displayCol];
+                    const rank = RANKS[7 - displayRow];
+                    const squareName = file + rank;
+
+                    const square = document.createElement('div');
+                    const isLight = (displayRow + displayCol) % 2 === 0;
+                    square.className = `square ${isLight ? 'light' : 'dark'}`;
+                    square.dataset.square = squareName;
+
+                    // Surbrillance de la case sélectionnée
+                    if (squareName === selectedSquare) {
+                        square.classList.add('selected');
+                    }
+
+                    // Surbrillance du dernier coup
+                    if (lastMove) {
+                        if (squareName === lastMove.from) square.classList.add('last-from');
+                        if (squareName === lastMove.to) square.classList.add('last-to');
+                    }
+
+                    // Roi en échec
+                    if (state.king_in_check && squareName === state.king_in_check) {
+                        square.classList.add('in-check');
+                    }
+
+                    // Pièce sur cette case
+                    const piece = pieces[squareName];
+                    if (piece) {
+                        const pieceEl = document.createElement('span');
+                        const isWhitePiece = piece === piece.toUpperCase();
+                        pieceEl.className = 'piece ' + (isWhitePiece ? 'piece-white' : 'piece-black');
+
+                        // Animation de capture : la pièce arrivante "gobe"
+                        if (captureInfo && squareName === captureInfo.square) {
+                            pieceEl.classList.add('capturing');
+                            pieceEl.addEventListener('animationend', () => {
+                                pieceEl.classList.remove('capturing');
+                            });
+                        }
+
+                        pieceEl.textContent = PIECE_UNICODE[piece] || piece;
+                        square.appendChild(pieceEl);
+                    }
+
+                    // Points noirs (coups légaux)
+                    if (selectedMoves.includes(squareName)) {
+                        if (piece) {
+                            // Capture : cercle autour de la pièce
+                            const circle = document.createElement('div');
+                            circle.className = 'legal-capture';
+                            square.appendChild(circle);
+                        } else {
+                            // Case vide : point noir
+                            const dot = document.createElement('div');
+                            dot.className = 'legal-dot';
+                            square.appendChild(dot);
+                        }
+                    }
+
+                    // Coordonnées affichées sur le plateau
+                    if (displayCol === 0 || col === 0) {
+                        // Rangées (à gauche)
+                        if (col === 0) {
+                            const coordRank = document.createElement('span');
+                            coordRank.className = 'coord-rank';
+                            coordRank.textContent = rank;
+                            square.appendChild(coordRank);
+                        }
+                    }
+                    if (displayRow === 7 || row === 7) {
+                        // Fichiers (en bas)
+                        if (row === 7) {
+                            const coordFile = document.createElement('span');
+                            coordFile.className = 'coord-file';
+                            coordFile.textContent = file;
+                            square.appendChild(coordFile);
+                        }
+                    }
+
+                    // Clic sur la case
+                    square.addEventListener('click', () => handleSquareClick(squareName, state));
+
+                    boardEl.appendChild(square);
+                }
+            }
+        }
+
+        // ============================================================
+        // GESTION DES CLICS SUR L'ÉCHIQUIER
+        // ============================================================
+
+        function handleSquareClick(squareName, state) {
+            // --- Mode édition ---
+            if (state.edit_mode) {
+                if (editSelectedPiece === 'eraser') {
+                    socket.emit('edit_place_piece', { square: squareName, piece: null });
+                } else if (editSelectedPiece) {
+                    socket.emit('edit_place_piece', { square: squareName, piece: editSelectedPiece });
+                }
+                return;
+            }
+
+            // --- Mode jeu ---
+            const pieces = parseFEN(state.fen);
+            const clickedPiece = pieces[squareName];
+
+            if (selectedSquare) {
+                // Une pièce est déjà sélectionnée
+                const selectedMoves = legalMoves[selectedSquare] || [];
+
+                if (selectedMoves.includes(squareName)) {
+                    // Coup vers une case légale → tenter le déplacement
+                    socket.emit('attempt_move', {
+                        from: selectedSquare,
+                        to: squareName
+                    });
+                    selectedSquare = null;
+                } else if (clickedPiece && squareName !== selectedSquare) {
+                    // Clic sur une autre pièce → la sélectionner
+                    selectedSquare = squareName;
+                    renderBoard(state);
+                } else {
+                    // Clic ailleurs → désélectionner
+                    selectedSquare = null;
+                    renderBoard(state);
+                }
+            } else {
+                // Aucune pièce sélectionnée
+                if (clickedPiece && legalMoves[squareName]) {
+                    selectedSquare = squareName;
+                    renderBoard(state);
+                }
+            }
+        }
+
+        // ============================================================
+        // PROMOTION
+        // ============================================================
+
+        socket.on('promotion_needed', function(data) {
+            const isWhite = gameState.turn === 'white';
+            const promoModal = document.getElementById('promoModal');
+            const choices = document.getElementById('promoChoices');
+            choices.innerHTML = '';
+
+            const promoOptions = [
+                { name: 'queen', symbol: isWhite ? '♕' : '♛' },
+                { name: 'rook', symbol: isWhite ? '♖' : '♜' },
+                { name: 'bishop', symbol: isWhite ? '♗' : '♝' },
+                { name: 'knight', symbol: isWhite ? '♘' : '♞' }
+            ];
+
+            promoOptions.forEach(opt => {
+                const btn = document.createElement('div');
+                btn.className = 'promo-choice ' + (isWhite ? 'promo-white' : 'promo-black');
+                btn.textContent = opt.symbol;
+                btn.onclick = () => {
+                    socket.emit('attempt_move', {
+                        from: data.from,
+                        to: data.to,
+                        promotion: opt.name
+                    });
+                    promoModal.style.display = 'none';
+                    selectedSquare = null;
+                };
+                choices.appendChild(btn);
+            });
+
+            promoModal.style.display = 'flex';
+        });
+
+        // ============================================================
+        // PIÈCES CAPTURÉES
+        // ============================================================
+
+        function renderCaptures(captured) {
+            // Pièces blanches capturées
+            const whiteEl = document.getElementById('capturedWhite');
+            const whiteScore = document.getElementById('scoreWhite');
+            const whitePieces = captured.white || [];
+            whiteEl.textContent = whitePieces.map(p => PIECE_UNICODE[p.symbol] || p.symbol).join('');
+            const wTotal = whitePieces.reduce((s, p) => s + p.value, 0);
+            whiteScore.textContent = wTotal > 0 ? `(${wTotal} pts)` : '';
+
+            // Pièces noires capturées
+            const blackEl = document.getElementById('capturedBlack');
+            const blackScore = document.getElementById('scoreBlack');
+            const blackPieces = captured.black || [];
+            blackEl.textContent = blackPieces.map(p => PIECE_UNICODE[p.symbol] || p.symbol).join('');
+            const bTotal = blackPieces.reduce((s, p) => s + p.value, 0);
+            blackScore.textContent = bTotal > 0 ? `(${bTotal} pts)` : '';
+        }
+
+        // ============================================================
+        // STATUT DE LA PARTIE
+        // ============================================================
+
+        function updateStatus(state) {
+            const box = document.getElementById('statusBox');
+            box.className = 'status-box';
+
+            if (state.status === 'editing') {
+                box.textContent = '🔧 Mode édition';
+            } else if (state.status === 'playing') {
+                const turn = state.turn === 'white' ? 'Blancs' : 'Noirs';
+                box.textContent = `🎯 Tour des ${turn}`;
+            } else if (state.status === 'check') {
+                const turn = state.turn === 'white' ? 'Blancs' : 'Noirs';
+                box.textContent = `⚠️ Échec ! Tour des ${turn}`;
+                box.classList.add('check');
+            } else if (state.status.startsWith('checkmate')) {
+                const winner = state.status.split(':')[1];
+                box.textContent = `👑 Échec et mat ! ${winner} gagnent`;
+                box.classList.add('checkmate');
+            } else if (state.status === 'stalemate') {
+                box.textContent = '🤝 Pat — Match nul';
+                box.classList.add('stalemate');
+            } else if (state.status === 'insufficient') {
+                box.textContent = '🤝 Matériel insuffisant — Match nul';
+                box.classList.add('stalemate');
+            }
+        }
+
+        // ============================================================
+        // MODE ÉDITION
+        // ============================================================
+
+        function updateEditMode(isEditing) {
+            const palette = document.getElementById('editPalette');
+            const btnValidate = document.getElementById('btnValidate');
+
+            if (isEditing) {
+                palette.classList.add('active');
+                btnValidate.style.display = 'block';
+                buildPalette();
+            } else {
+                palette.classList.remove('active');
+                btnValidate.style.display = 'none';
+                editSelectedPiece = null;
+            }
+        }
+
+        function buildPalette() {
+            const container = document.getElementById('palettePieces');
+            container.innerHTML = '';
+
+            // Pièces blanches puis noires
+            const allPieces = [
+                { symbol: 'K', display: '♔' }, { symbol: 'Q', display: '♕' },
+                { symbol: 'R', display: '♖' }, { symbol: 'B', display: '♗' },
+                { symbol: 'N', display: '♘' }, { symbol: 'P', display: '♙' },
+                { symbol: 'k', display: '♚' }, { symbol: 'q', display: '♛' },
+                { symbol: 'r', display: '♜' }, { symbol: 'b', display: '♝' },
+                { symbol: 'n', display: '♞' }, { symbol: 'p', display: '♟' }
+            ];
+
+            allPieces.forEach(p => {
+                const btn = document.createElement('div');
+                btn.className = 'palette-piece';
+                if (editSelectedPiece === p.symbol) btn.classList.add('selected');
+                btn.textContent = p.display;
+                btn.onclick = () => {
+                    editSelectedPiece = p.symbol;
+                    buildPalette();  // Rafraîchir la sélection
+                };
+                container.appendChild(btn);
+            });
+
+            // Gomme
+            const eraser = document.createElement('div');
+            eraser.className = 'palette-piece eraser';
+            if (editSelectedPiece === 'eraser') eraser.classList.add('selected');
+            eraser.textContent = '✕';
+            eraser.onclick = () => {
+                editSelectedPiece = 'eraser';
+                buildPalette();
+            };
+            container.appendChild(eraser);
+        }
+
+        // ============================================================
+        // BOUTONS D'ACTION
+        // ============================================================
+
+        function resetBoard() {
+            selectedSquare = null;
+            lastMove = null;
+            socket.emit('reset');
+        }
+
+        function clearBoard() {
+            selectedSquare = null;
+            lastMove = null;
+            socket.emit('clear_board');
+        }
+
+        function flipBoard() {
+            boardFlipped = !boardFlipped;
+            if (gameState) renderBoard(gameState);
+        }
+
+        function validatePosition() {
+            socket.emit('validate_position');
+        }
+
+        // ============================================================
+        // LISTE DES JOUEURS
+        // ============================================================
+
+        socket.on('users_list', function(users) {
+            const list = document.getElementById('playersList');
+            list.innerHTML = '';
+            for (const [sid, name] of Object.entries(users)) {
+                const li = document.createElement('li');
+                li.textContent = name + (sid === mySid ? ' (vous)' : '');
+                list.appendChild(li);
+            }
+        });
+
+        socket.on('user_joined', function(data) {
+            if (data.sid !== mySid) {
+                showToast(`${data.name} a rejoint la partie`, '#27ae60');
+            }
+        });
+
+        socket.on('user_left', function(data) {
+            showToast(`${data.name} a quitté`, '#e67e22');
+            // Supprimer son curseur
+            if (remoteCursors[data.sid]) {
+                remoteCursors[data.sid].element.remove();
+                delete remoteCursors[data.sid];
+            }
+        });
+
+        // ============================================================
+        // CURSEURS DES AUTRES JOUEURS
+        // ============================================================
+
+        // Envoyer sa propre position de curseur (throttle à 50ms)
+        let lastCursorSend = 0;
+        document.addEventListener('mousemove', function(e) {
+            const now = Date.now();
+            if (now - lastCursorSend < 50) return;
+            lastCursorSend = now;
+
+            if (mySid) {
+                socket.emit('cursor_move', { x: e.clientX, y: e.clientY });
+            }
+        });
+
+        // Recevoir les curseurs des autres
+        socket.on('cursor_update', function(data) {
+            if (data.sid === mySid) return;
+
+            if (!remoteCursors[data.sid]) {
+                // Créer un nouvel élément curseur
+                const el = document.createElement('div');
+                el.className = 'remote-cursor';
+                const color = CURSOR_COLORS[cursorColorIndex % CURSOR_COLORS.length];
+                cursorColorIndex++;
+
+                el.innerHTML = `
+                    <div class="cursor-arrow" style="border-bottom-color:${color}"></div>
+                    <div class="cursor-name" style="background:${color}">${data.name}</div>
+                `;
+                document.body.appendChild(el);
+                remoteCursors[data.sid] = { element: el, color: color };
+            }
+
+            const cursor = remoteCursors[data.sid];
+            cursor.element.style.left = data.x + 'px';
+            cursor.element.style.top = data.y + 'px';
+        });
+
+        // ============================================================
+        // ERREURS ET NOTIFICATIONS
+        // ============================================================
+
+        socket.on('error', function(data) {
+            showToast(data.message);
+        });
+
+        function showToast(message, color) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.style.background = color || '#e74c3c';
+            toast.style.display = 'block';
+            setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        }
+
+        // ============================================================
+        // RECONNEXION AUTOMATIQUE
+        // ============================================================
+
+        socket.on('disconnect', function() {
+            showToast('Connexion perdue... tentative de reconnexion', '#e67e22');
+        });
+
+        socket.on('connect', function() {
+            // Si on avait déjà un nom, se reconnecter automatiquement
+            if (myName) {
+                socket.emit('join', { name: myName });
+            }
+        });
+
+    </script>
+</body>
+</html>
