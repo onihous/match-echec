@@ -15,7 +15,7 @@ from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'match-echec-secret-v1'
-socketio = SocketIO(app, cors_allowed_origins="*")
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent')
 
 # ============================================================
 # État global du jeu (source de vérité unique, en mémoire)
