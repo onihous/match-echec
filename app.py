@@ -15,7 +15,7 @@ from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = 'match-echec-secret-v1'
-socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=60, ping_interval=25)
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='gevent', ping_timeout=120, ping_interval=30, transports=['polling', 'websocket'])
 
 # ============================================================
 # État global du jeu (source de vérité unique, en mémoire)

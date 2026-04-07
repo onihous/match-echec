@@ -633,13 +633,14 @@
         // ============================================================
 
         const socket = io({
-    transports: ['websocket', 'polling'],
+    transports: ['polling', 'websocket'],
+    upgrade: true,
     reconnection: true,
-    reconnectionAttempts: 20,
-    reconnectionDelay: 2000,
-    timeout: 60000
+    reconnectionAttempts: 50,
+    reconnectionDelay: 1000,
+    timeout: 120000,
+    forceNew: false
 });
-
         // État local (l'affichage se base sur ce que le serveur envoie)
         let myName = '';
         let mySid = '';
