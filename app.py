@@ -5,6 +5,7 @@ Le serveur est la seule source de vérité sur l'état de la partie.
 """
 
 import re
+import socket
 import chess
 from flask import Flask, render_template, request
 from flask_socketio import SocketIO, emit
@@ -109,6 +110,20 @@ def make_unique_name(name):
     while f"{name} ({suffix})" in existing_names:
         suffix += 1
     return f"{name} ({suffix})"
+
+
+def get_lan_ip():
+    """Trouve l'adresse IP locale du PC sur le réseau Wi-Fi/Ethernet."""
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    try:
+        # Pas de paquet réellement envoyé : sert juste à choisir la bonne interface
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+    except OSError:
+        ip = "127.0.0.1"
+    finally:
+        s.close()
+    return ip
 
 
 def reset_game():
@@ -386,6 +401,12 @@ def handle_cursor(data):
 # ============================================================
 
 if __name__ == '__main__':
+    lan_ip = get_lan_ip()
     print("=== Jeu d'échecs - Version 1 ===")
-    print("Ouvrez http://localhost:5000 dans votre navigateur")
+    print("")
+    print("  Sur CE PC          : http://localhost:5000")
+    print(f"  Depuis le TÉLÉPHONE : http://{lan_ip}:5000")
+    print("")
+    print("  (Téléphone et PC doivent être sur le même Wi-Fi.")
+    print("   Ouvrez l'adresse 'TÉLÉPHONE' dans le navigateur du mobile.)")
     socketio.run(app, host='0.0.0.0', port=5000, debug=True)
